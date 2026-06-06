@@ -1,0 +1,41 @@
+# Claude Code
+.claude/
+
+# Gradle / Android
+.gradle/
+build/
+*/build/
+*/*/build/
+local.properties
+.cxx/
+captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Signing
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Kotlin/IntelliJ
+out/
+
+# Python / model pipeline
+model/**/__pycache__/
+model/build/
+model/**/*.pt
+model/**/*.pth
+model/**/*.onnx
+model/**/*.tflite
+model/.venv/
+model/venv/
+*.egg-info/
+
+# Logs
+*.log

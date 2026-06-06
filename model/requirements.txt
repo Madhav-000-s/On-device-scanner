@@ -1,0 +1,18 @@
+# Model training / export pipeline (DESIGN.md §5.3).
+#
+# ai-edge-torch (DESIGN.md §D3 route 3, the documented primary path) is intentionally NOT
+# listed here: it depends on torch_xla, which has no Windows distribution. This pipeline
+# targets onnx2tf (route 2) instead. See README.md "Deviation from DESIGN.md §D3".
+
+torch==2.4.1
+onnx==1.22.0
+onnx2tf==1.28.8
+onnx_graphsurgeon==0.6.1
+sng4onnx==2.0.1
+onnxsim==0.7.0
+simple_onnx_processing_tools==1.1.32
+tensorflow==2.21.0
+tf_keras==2.21.0
+opencv-python==5.0.0.93
+albumentations==2.0.8
+numpy
