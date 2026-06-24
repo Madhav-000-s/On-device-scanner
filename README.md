@@ -28,15 +28,36 @@ This was built and verified without a physical Android device or emulator:
 - ✅ Device-free logic has real unit tests (`:core:parse` parsing/reconciliation,
   `:core:bench` percentile math and drop-rate inference) — `./gradlew test`
 - ✅ The model pipeline runs end-to-end on synthetic data and produces real, loadable
-  `.tflite` artifacts in all four §D4 variants
+  `.tflite` artifacts in all four §D4 variants, each verified against the original PyTorch
+  model through the real LiteRT Python interpreter (`model/export.py --verify`)
+- ✅ `model/evaluate.py` measures real IoU/F1/corner-MAE per variant and a per-layer
+  FP32-vs-INT8 activation MSE diff, on synthetic held-out data — see
+  `model/build/eval_report.json`. All four variants land around 0.97 IoU / 0.98 F1 on the
+  synthetic set, comfortably over the §9 Phase 1 IoU target, but synthetic paper-vs-background
+  segmentation is a much easier task than real receipts — **this number does not demonstrate
+  the §9 gate is met**, only that the pipeline and quantization path work correctly end to end.
+  Meeting the real gate needs the CORD/SROIE/MIDV-2020 corpora, which aren't in this repo.
 - ❌ **No runtime/perf numbers are real.** Every §9 phase gate that requires a device
   (30 FPS sustained analysis, p95 ≤ 25 ms, drop rate, thermal throttle knee, 85% line-item
   extraction accuracy) is unmeasured. The benchmark harness and its result tables are
   implemented to spec but ship with empty/synthetic-only numbers rather than fabricated ones.
-- ❌ **Accuracy targets are not met.** IoU ≥ 0.85 (§9 Phase 1 gate) requires the real
-  CORD/SROIE/MIDV-2020 datasets, which aren't in this repo. The synthetic-only model's
-  measured IoU is reported as-is in `model/build/eval_report.json`, not asserted against
-  the target.
+
+## onnx2tf environment notes (Windows)
+
+Two real issues surfaced getting `model/export.py` working here, both worth knowing if this
+pipeline moves to another machine:
+
+1. **`onnxsim` must be on `PATH`.** onnx2tf shells out to the `onnxsim` CLI; pip installs it
+   under the Python user install's `Scripts/` directory, which isn't on `PATH` by default on
+   Windows (pip prints a warning about this during install — easy to miss). Without it,
+   onnx2tf's model-simplification step fails silently-ish (`FileNotFoundError: [WinError 2]`).
+2. **onnx2tf 1.28.8's `download_test_image_data()` is broken against current numpy.** It
+   calls `np.load()` without `allow_pickle=True` on a cached/downloaded reference file that
+   needs it, raising `ValueError: This file contains pickled (object) data`. This helper is
+   onnx2tf's own generic sanity-check/fallback-calibration data — unrelated to this project's
+   correctness — so `export.py` monkeypatches it to return synthetic random data instead of
+   crashing the whole conversion. Verified against a minimal single-conv model first to
+   confirm this is an environment/library issue, not something specific to this model.
 
 ## Toolchain
 

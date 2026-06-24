@@ -13,6 +13,7 @@ onnxsim==0.7.0
 simple_onnx_processing_tools==1.1.32
 tensorflow==2.21.0
 tf_keras==2.21.0
+ai-edge-litert==2.1.6
 opencv-python==5.0.0.93
 albumentations==2.0.8
 numpy
