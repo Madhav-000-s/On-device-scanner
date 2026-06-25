@@ -36,7 +36,9 @@ android {
 dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:bench"))
+    implementation(project(":core:camera"))
 
+    implementation(libs.camerax.core)
     implementation(libs.tflite)
     implementation(libs.tflite.gpu)
     implementation(libs.tflite.gpu.api)

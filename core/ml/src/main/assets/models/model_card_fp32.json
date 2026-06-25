@@ -1,0 +1,32 @@
+{
+  "variant": "fp32",
+  "sha256": "85ccccb9f0312b9ee416217616ae85a91424987a2a16f2db453a1bbd09296141",
+  "bytes": 1206788,
+  "input": {
+    "shape": [
+      1,
+      256,
+      256,
+      3
+    ],
+    "dtype": "float32",
+    "mean": 127.5,
+    "std": 127.5
+  },
+  "output": {
+    "shape": [
+      1,
+      64,
+      64,
+      1
+    ],
+    "dtype": "float32"
+  },
+  "threshold": 0.5,
+  "metrics": {
+    "iou": 0.9700238108634949,
+    "f1": 0.9847705364227295,
+    "corner_mae_px": 0.41458333333333336
+  },
+  "trained_commit": "882525536e6c90227272476800760fbacb091565"
+}

@@ -1,0 +1,32 @@
+{
+  "variant": "int8_dr",
+  "sha256": "a7b34bcfc88cc6ef6585d361c9bda8136515fda5482e3c7bea1d10e87f675264",
+  "bytes": 389128,
+  "input": {
+    "shape": [
+      1,
+      256,
+      256,
+      3
+    ],
+    "dtype": "float32",
+    "mean": 127.5,
+    "std": 127.5
+  },
+  "output": {
+    "shape": [
+      1,
+      64,
+      64,
+      1
+    ],
+    "dtype": "float32"
+  },
+  "threshold": 0.5,
+  "metrics": {
+    "iou": 0.970093309879303,
+    "f1": 0.9848065972328186,
+    "corner_mae_px": 0.4125
+  },
+  "trained_commit": "882525536e6c90227272476800760fbacb091565"
+}
