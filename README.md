@@ -7,7 +7,11 @@ build plan this implementation follows.
 
 ## Status
 
-Implemented in 10 phases mapping to `DESIGN.md` §9. See commit history for phase boundaries.
+All 10 phases complete. See commit history for phase boundaries. Every module compiles,
+`./gradlew assembleDebug` produces a real debug APK with CameraX/TFLite/OpenCV/ML Kit/Room/
+Hilt/Compose all wired, `./gradlew test` passes across every device-free module, and the
+Python model pipeline trains, exports, and evaluates a real detector end to end. What this
+does **not** include is device verification — see "What's verified vs. not" below.
 
 ## Deviation from DESIGN.md §D3
 
@@ -37,10 +41,16 @@ This was built and verified without a physical Android device or emulator:
   segmentation is a much easier task than real receipts — **this number does not demonstrate
   the §9 gate is met**, only that the pipeline and quantization path work correctly end to end.
   Meeting the real gate needs the CORD/SROIE/MIDV-2020 corpora, which aren't in this repo.
+- ✅ The full app shell builds: three-tab navigation (scan/history/benchmark), a runtime
+  camera-permission flow gating the scan tab, Room-backed history with delete/share, and the
+  §6 benchmark harness (fixed 50-frame replay, 20 warmup + 300 measured iterations, cold-start
+  isolated, full variant×delegate×thread config matrix, JSON/CSV export with raw samples).
 - ❌ **No runtime/perf numbers are real.** Every §9 phase gate that requires a device
   (30 FPS sustained analysis, p95 ≤ 25 ms, drop rate, thermal throttle knee, 85% line-item
-  extraction accuracy) is unmeasured. The benchmark harness and its result tables are
-  implemented to spec but ship with empty/synthetic-only numbers rather than fabricated ones.
+  extraction accuracy) is unmeasured. The benchmark harness runs real inference through the
+  real bundled models and is structurally complete, but nothing in it has ever executed on
+  an actual phone — install the debug APK on the target device and run it from the
+  Benchmark tab to get the first real numbers.
 
 ## onnx2tf environment notes (Windows)
 

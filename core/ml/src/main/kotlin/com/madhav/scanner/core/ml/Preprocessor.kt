@@ -66,9 +66,23 @@ class Preprocessor(
     /** Returns [outputBuffer], rewound and freshly filled — never a new allocation. */
     fun process(image: ImageProxy): ByteBuffer {
         reusableBitmap.copyPixelsFromBuffer(image.planes[0].buffer)
+        return processReusableBitmap(image.imageInfo.rotationDegrees)
+    }
 
+    /**
+     * Same pipeline, for a source that's already a [Bitmap] rather than a live [ImageProxy]
+     * (DESIGN.md §6.1's `BenchRunner`: "replays them through the real pipeline" using fixed
+     * asset frames, not a camera feed). `source` must already be [analysisWidth]x[analysisHeight].
+     */
+    fun process(source: Bitmap, rotationDegrees: Int = 0): ByteBuffer {
+        val canvas = android.graphics.Canvas(reusableBitmap)
+        canvas.drawBitmap(source, 0f, 0f, null)
+        return processReusableBitmap(rotationDegrees)
+    }
+
+    private fun processReusableBitmap(rotationDegrees: Int): ByteBuffer {
         val tensorImage = TensorImage.fromBitmap(reusableBitmap)
-        val processed = buildImageProcessor(image.imageInfo.rotationDegrees).process(tensorImage)
+        val processed = buildImageProcessor(rotationDegrees).process(tensorImage)
 
         outputBuffer.rewind()
         outputBuffer.put(processed.buffer)

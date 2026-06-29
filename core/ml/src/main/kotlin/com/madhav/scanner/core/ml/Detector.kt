@@ -6,6 +6,7 @@ import com.madhav.scanner.core.bench.LatencyRecorder
 import com.madhav.scanner.core.bench.Stage
 import com.madhav.scanner.core.camera.DetectorGate
 import com.madhav.scanner.core.model.DetectionResult
+import com.madhav.scanner.core.model.Delegate
 import com.madhav.scanner.core.model.ModelVariant
 import org.tensorflow.lite.Interpreter
 
@@ -27,13 +28,9 @@ class Detector(
 
     private val card = modelRegistry.loadModelCard(variant)
 
-    private val interpreter: Interpreter = Interpreter(
-        modelRegistry.loadModelBuffer(variant),
-        Interpreter.Options().apply {
-            setNumThreads(2) // DESIGN.md §D5
-            setUseXNNPACK(true)
-        },
-    ).also { modelRegistry.assertContractMatches(card, it) }
+    // DESIGN.md §D5: XNNPACK CPU, 2 threads is the shipping default.
+    private val interpreter: Interpreter =
+        InterpreterFactory.create(context, modelRegistry, variant, Delegate.XNNPACK, threads = 2)
 
     private val preprocessor = Preprocessor(modelInputSize = card.input.shape[1])
     private val postprocessor = Postprocessor(threshold = card.threshold.toDouble())

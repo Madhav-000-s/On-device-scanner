@@ -39,12 +39,15 @@ dependencies {
     implementation(project(":core:camera"))
 
     implementation(libs.camerax.core)
-    implementation(libs.tflite)
-    implementation(libs.tflite.gpu)
-    implementation(libs.tflite.gpu.api)
-    implementation(libs.tflite.support)
 
-    implementation(libs.opencv)
+    // api, not implementation: Interpreter/Mat types appear in this module's public
+    // surface (InterpreterFactory, Detector, Preprocessor.graySample), so consumers like
+    // :feature:benchmark need them on their own compile classpath too.
+    api(libs.tflite)
+    api(libs.tflite.gpu)
+    api(libs.tflite.gpu.api)
+    api(libs.tflite.support)
+    api(libs.opencv)
 
     testImplementation(libs.junit)
 }

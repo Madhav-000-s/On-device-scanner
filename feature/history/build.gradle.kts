@@ -32,11 +32,13 @@ dependencies {
     implementation(project(":core:data"))
 
     implementation(libs.lifecycle.viewmodel.ktx)
+    implementation(libs.lifecycle.runtime.compose)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
 
     implementation(libs.hilt.android)
+    implementation(libs.hilt.nav.compose)
     ksp(libs.hilt.compiler)
 
     testImplementation(libs.junit)

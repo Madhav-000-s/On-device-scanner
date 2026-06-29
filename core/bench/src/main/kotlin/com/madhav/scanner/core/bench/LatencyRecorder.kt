@@ -38,12 +38,22 @@ class LatencyRecorder(private val capacityPerStage: Int = 300) {
 
     fun sampleCount(stage: Stage): Int = filledCount.getValue(stage)
 
+    /**
+     * Raw, unsorted samples for [stage] in recording order. DESIGN.md §6.6: "Raw samples
+     * are kept, not just percentiles — you will want to re-derive a different statistic
+     * later, and you will not want to re-run the matrix." Empty if nothing recorded yet.
+     */
+    fun rawSamples(stage: Stage): LongArray {
+        val filled = filledCount.getValue(stage)
+        if (filled == 0) return LongArray(0)
+        val buffer = buffers.getValue(stage)
+        return if (filled == capacityPerStage) buffer.copyOf() else buffer.copyOf(filled)
+    }
+
     /** Null when nothing has been recorded for this stage yet. */
     fun stats(stage: Stage): PercentileStats? {
-        val filled = filledCount.getValue(stage)
-        if (filled == 0) return null
-        val buffer = buffers.getValue(stage)
-        val samples = if (filled == capacityPerStage) buffer.copyOf() else buffer.copyOf(filled)
+        val samples = rawSamples(stage)
+        if (samples.isEmpty()) return null
         return PercentileStats.from(samples)
     }
 
