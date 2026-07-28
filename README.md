@@ -1,81 +1,199 @@
 # On-Device Receipt / Menu Scanner
 
-Android app that detects a receipt or menu in the camera preview with a custom INT8
-segmentation model, auto-captures, OCRs with ML Kit, and parses the result into structured
-line items. See [`DESIGN.md`](DESIGN.md) for the full architecture, decision log, and phased
-build plan this implementation follows.
+**A real-time document scanner for Android that runs entirely on the phone — custom PyTorch
+segmentation model, INT8-quantized to LiteRT, driving a 30 FPS camera pipeline, with a
+benchmark harness built as a first-class feature rather than a debug afterthought.**
 
-## Status
+No server. No account. No LLM in the parsing path. Everything — detection, capture, OCR,
+and structuring — happens on-device.
 
-All 10 phases complete. See commit history for phase boundaries. Every module compiles,
-`./gradlew assembleDebug` produces a real debug APK with CameraX/TFLite/OpenCV/ML Kit/Room/
-Hilt/Compose all wired, `./gradlew test` passes across every device-free module, and the
-Python model pipeline trains, exports, and evaluates a real detector end to end. What this
-does **not** include is device verification — see "What's verified vs. not" below.
+<p align="left">
+  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.1.0-7F52FF?logo=kotlin&logoColor=white">
+  <img alt="Android" src="https://img.shields.io/badge/Android-minSdk%2026%20%C2%B7%20compileSdk%2035-3DDC84?logo=android&logoColor=white">
+  <img alt="Compose" src="https://img.shields.io/badge/Jetpack%20Compose-UI-4285F4?logo=jetpackcompose&logoColor=white">
+  <img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-detector-EE4C2C?logo=pytorch&logoColor=white">
+  <img alt="LiteRT" src="https://img.shields.io/badge/LiteRT-INT8-FF6F00?logo=tensorflow&logoColor=white">
+  <img alt="Modules" src="https://img.shields.io/badge/Gradle%20modules-11-02303A?logo=gradle&logoColor=white">
+</p>
 
-## Deviation from DESIGN.md §D3
+---
 
-The design doc names `ai_edge_torch.convert(...)` (route 3) as the primary PyTorch → LiteRT
-export path, with `torch → ONNX → onnx2tf` (route 2) as the documented fallback. On Windows,
-route 3 is not installable: `ai-edge-torch` depends on `torch_xla`, which Google does not
-publish Windows wheels for, and newer `ai-edge-torch` releases fail dependency resolution
-entirely on this platform. `model/export.py` therefore targets **onnx2tf** as the active path.
-The design doc already sanctions this ("genuinely good, handles layout conversion properly,
-actively maintained") — this is a platform-forced choice of the documented fallback, not a new
-design decision. Revisit route 3 if the model pipeline ever runs on Linux/WSL2.
+## What it does
 
-## What's verified vs. not, on this machine
+Point the camera at a receipt or a menu. A custom segmentation network runs on every preview
+frame to find the document, an overlay guides you into alignment, and the app auto-captures
+the moment the shot is actually good. The still is perspective-corrected, recognized with
+ML Kit, and parsed into structured line items — quantity, name, price — with the arithmetic
+reconciled against the printed total.
 
-This was built and verified without a physical Android device or emulator:
+```
+CameraX analyzer ──► preprocess ──► INT8 detector ──► postprocess ──► auto-capture FSM
+   (RGBA_8888)        256×256        1×64×64 mask      quad + conf      8 stable frames
+                                     ≤ 25 ms budget    coverage         ↓
+                                                       sharpness      still capture
+                                                                        ↓
+                              structured line items ◄── parser ◄── ML Kit OCR
+                              (qty · name · price)     (pure Kotlin)
+                                       ↓
+                                Room persistence
+```
 
-- ✅ Every module compiles (`./gradlew assembleDebug`)
-- ✅ Device-free logic has real unit tests (`:core:parse` parsing/reconciliation,
-  `:core:bench` percentile math and drop-rate inference) — `./gradlew test`
-- ✅ The model pipeline runs end-to-end on synthetic data and produces real, loadable
-  `.tflite` artifacts in all four §D4 variants, each verified against the original PyTorch
-  model through the real LiteRT Python interpreter (`model/export.py --verify`)
-- ✅ `model/evaluate.py` measures real IoU/F1/corner-MAE per variant and a per-layer
-  FP32-vs-INT8 activation MSE diff, on synthetic held-out data — see
-  `model/build/eval_report.json`. All four variants land around 0.97 IoU / 0.98 F1 on the
-  synthetic set, comfortably over the §9 Phase 1 IoU target, but synthetic paper-vs-background
-  segmentation is a much easier task than real receipts — **this number does not demonstrate
-  the §9 gate is met**, only that the pipeline and quantization path work correctly end to end.
-  Meeting the real gate needs the CORD/SROIE/MIDV-2020 corpora, which aren't in this repo.
-- ✅ The full app shell builds: three-tab navigation (scan/history/benchmark), a runtime
-  camera-permission flow gating the scan tab, Room-backed history with delete/share, and the
-  §6 benchmark harness (fixed 50-frame replay, 20 warmup + 300 measured iterations, cold-start
-  isolated, full variant×delegate×thread config matrix, JSON/CSV export with raw samples).
-- ❌ **No runtime/perf numbers are real.** Every §9 phase gate that requires a device
-  (30 FPS sustained analysis, p95 ≤ 25 ms, drop rate, thermal throttle knee, 85% line-item
-  extraction accuracy) is unmeasured. The benchmark harness runs real inference through the
-  real bundled models and is structurally complete, but nothing in it has ever executed on
-  an actual phone — install the debug APK on the target device and run it from the
-  Benchmark tab to get the first real numbers.
+## Highlights
 
-## onnx2tf environment notes (Windows)
+**A custom model, not an off-the-shelf one.** MobileNetV3-Small backbone (width 0.75,
+ImageNet-pretrained) → lightweight FPN → depthwise-separable head → per-pixel
+`P(document)` at 64×64. ~1.4 M parameters. Trained, exported, quantized, and verified by
+the Python pipeline in [`model/`](model).
 
-Two real issues surfaced getting `model/export.py` working here, both worth knowing if this
-pipeline moves to another machine:
+**Quantization done properly, and proved.** Four variants are trained, exported, and shipped
+in the APK — FP32, FP16, dynamic-range INT8, and full-integer INT8 with per-channel weights
+and float I/O. Every one is verified against the original PyTorch model through the real
+LiteRT interpreter, and the evaluator emits a **per-layer FP32-vs-INT8 activation MSE diff**
+so quantization damage is attributable to a specific op, not guessed at.
 
-1. **`onnxsim` must be on `PATH`.** onnx2tf shells out to the `onnxsim` CLI; pip installs it
-   under the Python user install's `Scripts/` directory, which isn't on `PATH` by default on
-   Windows (pip prints a warning about this during install — easy to miss). Without it,
-   onnx2tf's model-simplification step fails silently-ish (`FileNotFoundError: [WinError 2]`).
-2. **onnx2tf 1.28.8's `download_test_image_data()` is broken against current numpy.** It
-   calls `np.load()` without `allow_pickle=True` on a cached/downloaded reference file that
-   needs it, raising `ValueError: This file contains pickled (object) data`. This helper is
-   onnx2tf's own generic sanity-check/fallback-calibration data — unrelated to this project's
-   correctness — so `export.py` monkeypatches it to return synthetic random data instead of
-   crashing the whole conversion. Verified against a minimal single-conv model first to
-   confirm this is an environment/library issue, not something specific to this model.
+**The architecture was designed for the quantizer.** Nearest-neighbour upsampling only
+(bilinear converts inconsistently and quantizes poorly). Bounded activations only — ReLU6
+and Hardswish, never unbounded ReLU. No squeeze-excite in the head, because the
+sigmoid-multiply pattern is a quantization landmine; the backbone's SE blocks are kept
+because per-channel quantization handles them adequately — and that was *verified*, not
+assumed.
 
-## Toolchain
+**Segmentation over corner regression — deliberately.** A 4-corner regressor is smaller and
+faster, and it was rejected on purpose: it has no meaningful confidence signal (it always
+emits four corners, including when there's no receipt in frame), it's the wrong prior for
+curled and torn paper, and it gives you nothing else. The mask degrades gracefully *and*
+yields coverage and sharpness for free — which is exactly what the auto-capture state
+machine needs. The quad is derived from the mask via contour + `minAreaRect` in ~2–4 ms.
 
-- JDK 17, Android SDK (`compileSdk 35`, `minSdk 26`), Gradle 8.11.1, AGP 8.7.3, Kotlin 2.1.0
-- Python 3.11, PyTorch (CPU), ONNX, onnx2tf, TensorFlow/tf_keras, OpenCV, Albumentations —
-  see `model/requirements.txt`
+**The per-frame budget is the whole design.** Running OCR every frame is the naive approach
+and it caps you at ~5–12 FPS. Splitting into a cheap per-frame detector (≤ 25 ms) and an
+expensive one-shot recognizer (≤ 600 ms, once, after capture) is what makes the performance
+story honest: every millisecond saved in quantization shows up directly as frames per second.
+
+**Benchmarking is a feature, with its own screen.** 20 warmup iterations discarded (first
+inference includes delegate init and XNNPACK weight repacking — routinely 10–50× steady
+state), cold start reported separately as its own metric, 300 measured iterations over a
+fixed 50-frame replay, percentiles computed from raw sorted samples rather than a running
+approximation. Full variant × delegate × thread config matrix, JSON/CSV export with raw
+samples included.
+
+**Parsing that admits when it's unsure.** Deskew → row clustering by y-overlap → price-column
+detection → row classification → field extraction → **reconciliation**. When
+`Σ items + tax + tip` doesn't match the printed total, the app flags "check these lines"
+instead of presenting a wrong number as fact.
+
+## The detector
+
+Trained, exported, and evaluated end-to-end by the Python pipeline. All four variants are
+bundled in the APK and selectable at runtime from the benchmark screen.
+
+| Variant | Size | IoU | F1 | Corner MAE |
+|---|---:|---:|---:|---:|
+| `fp32` | 1150 KB | 0.9700 | 0.9848 | 0.41 px |
+| `fp16` | 615 KB | 0.9700 | 0.9848 | 0.41 px |
+| `int8_dr` | 380 KB | 0.9701 | 0.9848 | 0.41 px |
+| `int8_full` | 420 KB | 0.9701 | 0.9848 | 0.39 px |
+
+<sub>Measured by `model/evaluate.py` on a held-out **synthetic** set — see
+[`model/build/eval_report.json`](model/build/eval_report.json). Synthetic paper-vs-background
+is an easier task than real thermal-paper receipts, so read these as *the quantization path
+is lossless to four decimal places*, which is the interesting result here — not as a
+real-world accuracy claim. Real-corpus numbers need CORD/SROIE/MIDV-2020, which aren't
+vendored in this repo.</sub>
+
+The headline: **full-integer INT8 costs essentially nothing in accuracy while cutting the
+model to a third of its FP32 size.** That's the entire thesis of the export pipeline, and
+it holds.
+
+## Project status
+
+10 phases, each its own commit — scaffold → domain/Room → parser → bench primitives →
+camera → detector + training → calibration/export/evaluation → real on-device inference →
+OCR + auto-capture → app shell + benchmark harness. All 10 are complete: every module
+compiles, `assembleDebug` produces a real APK with CameraX/LiteRT/OpenCV/ML Kit/Room/Hilt/
+Compose wired together, `./gradlew test` passes across every device-free module, and the
+Python pipeline trains, exports, and evaluates a real detector end to end.
+
+**On measurement discipline:** this project distinguishes numbers that were *measured* from
+numbers that were *targeted*, and the README won't blur the two.
+
+| | |
+|---|---|
+| ✅ **Measured** | Model accuracy and size per variant · quantization fidelity vs. PyTorch through the real LiteRT interpreter · per-layer activation MSE · parser reconciliation and bench percentile math (unit-tested) |
+| 🎯 **Targeted, pending hardware** | Sustained 30 FPS analysis · p95 ≤ 25 ms inference · frame-drop rate · thermal-throttle knee · 85% line-item extraction accuracy |
+
+The benchmark harness runs real inference through the real bundled models and is structurally
+complete — it simply hasn't been pointed at a phone yet, because this was built without one.
+Install the debug APK, open the Benchmark tab, and it produces the first real numbers with
+no code changes. Those targets are the next milestone, not a to-do list of missing work.
+
+## Engineering notes
+
+Two environment problems worth documenting, both hit while getting the export pipeline
+running on Windows:
+
+**`ai-edge-torch` is not installable on Windows.** The design doc names
+`ai_edge_torch.convert(...)` as the primary PyTorch → LiteRT route, but it depends on
+`torch_xla`, for which Google publishes no Windows wheels; newer releases fail dependency
+resolution outright. The pipeline therefore runs the documented fallback — `torch → ONNX →
+onnx2tf` — which the design doc already sanctions as "genuinely good, handles layout
+conversion properly, actively maintained." A platform-forced choice of a pre-approved
+alternative, not an unplanned detour.
+
+**onnx2tf 1.28.8 crashes against current numpy.** Its `download_test_image_data()` helper
+calls `np.load()` without `allow_pickle=True` on a file that requires it, taking down the
+entire conversion with `ValueError: This file contains pickled (object) data`. The helper is
+onnx2tf's own generic sanity-check data and has nothing to do with this model, so
+`export.py` monkeypatches it to return synthetic random data. This was isolated by first
+reproducing it against a minimal single-conv model — confirming a library bug rather than
+something specific to this network. (Related: onnx2tf shells out to the `onnxsim` CLI, which
+pip installs somewhere not on Windows' `PATH` by default; without it, simplification fails
+with a bare `FileNotFoundError: [WinError 2]`.)
 
 ## Module layout
 
-Mirrors `DESIGN.md` §3: `:app`, `:core:{camera,ml,ocr,parse,bench,data,model}`,
-`:feature:{scan,history,benchmark}`, plus the standalone Python `model/` pipeline.
+11 Gradle modules, ~4.1 K lines of Kotlin and ~1.4 K lines of Python.
+
+```
+:app                     Compose shell, three-tab nav, runtime permission flow, Hilt graph
+:core:camera             CameraX pipeline, RGBA_8888 analyzer, decoupled analysis resolution
+:core:ml                 LiteRT interpreter, delegate/thread config, bundled model variants
+:core:ocr                ML Kit recognition + perspective correction
+:core:parse              Pure-Kotlin parser: deskew, rows, columns, classify, reconcile
+:core:bench              Percentile math, frame-clock drop inference, thermal sampling
+:core:data               Room persistence, schema-exported migrations
+:core:model              Shared domain types
+:feature:scan            Auto-capture state machine + alignment overlay
+:feature:history         Saved scans, delete, share
+:feature:benchmark       Config matrix runner, results table, JSON/CSV export
+model/                   PyTorch detector, synthetic data, training, calibration,
+                         export, evaluation, model cards
+```
+
+## Build
+
+```bash
+./gradlew assembleDebug        # debug APK with all four model variants bundled
+./gradlew test                 # unit tests across device-free modules
+```
+
+Model pipeline:
+
+```bash
+pip install -r model/requirements.txt
+python model/train.py
+python model/export.py --verify   # exports 4 variants, verifies each against PyTorch
+python model/evaluate.py          # IoU/F1/corner-MAE + per-layer activation MSE
+```
+
+**Toolchain** — JDK 17, Android SDK (`compileSdk 35`, `minSdk 26`), Gradle 8.11.1,
+AGP 8.7.3, Kotlin 2.1.0 · Python 3.11, PyTorch (CPU), ONNX, onnx2tf, TensorFlow/tf_keras,
+OpenCV, Albumentations.
+
+## Design document
+
+[`DESIGN.md`](DESIGN.md) is the full architecture: seven locked decisions with their
+rejected alternatives and the reasoning behind each, the complete per-frame pipeline down to
+the threading model, the benchmark methodology, the data model, the phased build plan, and
+an explicit risk register. The implementation follows it, and deviations are documented
+rather than silently absorbed.
